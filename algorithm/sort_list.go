@@ -11,11 +11,6 @@ package algorithm
 归并排序基于分治算法。自顶向下，递归实现，空间复杂度为 O(logn)；自底向上，空间复杂度为 O(1).
  */
 
-type ListNode struct {
-	Next  *ListNode
-	Val int
-}
-
 func merge(head1, head2 *ListNode) *ListNode {
 	dummyHead := &ListNode{}
 	temp, temp1, temp2 := dummyHead, head1, head2
