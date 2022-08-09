@@ -1,6 +1,6 @@
 package algorithm
 
 type ListNode struct {
-	Next  *ListNode
-	Val int
+	Val  int
+	Next *ListNode
 }

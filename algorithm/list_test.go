@@ -30,3 +30,19 @@ func TestReverseList(t *testing.T) {
 		reverseHead = reverseHead.Next
 	}
 }
+
+func TestAddTwoNumbers(t *testing.T) {
+	l1 := &ListNode{Val: 7}
+	l1.Next = &ListNode{Val: 1}
+	l1.Next.Next = &ListNode{Val: 6}
+
+	l2 := &ListNode{Val: 5}
+	l2.Next = &ListNode{Val: 9}
+	l2.Next.Next = &ListNode{Val: 3}
+
+	res := addTwoNumbers(l1, l2)
+	for res != nil {
+		fmt.Printf("%v,", res.Val)
+		res = res.Next
+	}
+}
