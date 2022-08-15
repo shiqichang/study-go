@@ -6,6 +6,7 @@ import (
 	"strings"
 	"sync"
 	"sync/atomic"
+	"testing"
 	"unicode"
 )
 
@@ -16,7 +17,7 @@ const (
 	Bottom
 )
 
-func main() {
+func TestGolang(t *testing.T) {
 	//alternatePrint()
 
 	//fmt.Println(isUniqueString("string"))
