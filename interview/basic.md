@@ -432,33 +432,148 @@ mutex 会让当前的 goroutine 去空转 CPU，在空转完后再次调用 CAS 
 根据通道中没有数据时读取操作陷入阻塞和通道已满时继续写入操作陷入阻塞的特性，正好实现控制并发数量。
 
 ```go
+func main() {
+	count := 10 // 最大支持并发数
+	sum := 100 // 任务总数
+	wg := sync.WaitGroup{} // 控制主协程等待所有子协程执行完之后再退出
 
+	c := make(chan struct{}, count) // 控制任务并发的 chan
+	defer close(c)
+
+	for i:=0; i<sum; i++ {
+		wg.Add(1)
+		c <- struct{}{} // 作用类似于 waitgroup.Add(1)
+		go func(j int) {
+			defer wg.Done()
+			fmt.Println(j)
+			<- c // 执行完毕，释放资源
+		}(i)
+	}
+}
 ```
 
+二、第三方库实现的线程池
 
+panjf2000/ants
 
+```go
+import (
+    "log"
+	"time"
+	"github.com/Jeffail/tunny"
+)
 
+func main() {
+	pool := tunny.NewFunc(10, func(i interface{}) interface{} {
+		log.Println(i)
+		time.Sleep(time.Second)
+		return nil
+	})
+	defer pool.Close()
 
+	for i:=0; i<500; i++ {
+		go pool.Process(i)
+	}
+	time.Sleep(time.Second * 4)
+}
+```
 
+### 多个 goroutine 对同一个 map 写会 panic，异常是否可以用 defer 捕获
 
+可以捕获异常，但只能捕获一次。Go 可以使用多值返回来返回错误。不要用异常代替错误，更不要用来控制流程。
+对异常处理的原则：多用 error 包，少用 panic.
 
+```go
+defer func() {
+	if err := recover(); err != nil {
+		// 打印异常，关闭资源，退出此函数
+		fmt.Println(err)
+    }
+}
+```
 
+### 如何优雅地实现一个 goroutine 池
 
+- go-playground/pool
+- ants
 
+## GC 相关
 
+### go gc 是怎么实现的
 
+### go 的 gc 算法是如何实现的
 
+### GC 中 stw 时机，各个阶段是如何解决的
 
+### GC 的触发机制
 
+- 系统触发
+- 主动触发
 
+## 内存相关
 
+### 什么情况下内存会泄漏，怎么定位排查内存泄漏问题
 
+go 中的内存泄漏一般是 goroutine 泄漏，即 goroutine 没有被关闭，或者没有添加超时控制，让 goroutine 一直处于阻塞状态，不能被 GC。
 
+1. 如果 goroutine 在执行时被阻塞而无法退出，就会导致 goroutine 的内存泄漏，一个 goroutine 的最低栈大小为 2KB，在高并发的场景下，对内存的消耗也是非常恐怖的；
+2. 互斥锁未释放或者造成死锁会造成内存泄漏；
+3. time.Ticker 是每隔指定的时间就会向通道内写数据。作为循环触发器，必须调用 stop 方法才会停止，从而被 GC 掉，否则会一直占用内存空间；
+4. 字符串的截取引发临时性的内存泄漏；
+5. 切片截取引起子切片内存泄漏；
+6. 函数数组传参引发内存泄漏。
 
+排查方式：通过 pprof Go 性能分析工具。
 
+### 什么情况下会发生内存逃逸
 
+1. 方法内返回局部变量指针；
+2. 向 channel 发送指针数据；
+3. 在闭包中引用包外的值；
+4. 在 slice 或 map 中存储指针；
+5. 切片（扩容后）长度太大；
+6. 在 interface 类型上调用方法。
 
+### Go 是如何分配内存的
 
+mcache mcentral mheap mspan
 
+Go 程序启动的时候申请一大块内存，并且划分 spans，bitmap，areana 区域；arena 区域按照页划分成一个个小块，span 管理一个或者多个页，mcentral 管理多个 span 供现场申请使用；mcache 作为线程私有资源，来源于 mcentral。
 
+### Channel 分配在栈上还是堆上，哪些对象分配在堆上，哪些对象分配在栈上
+
+Channel 被设计用来实现协程间通信的组件，其作用域和生命周期不可能仅限于某个函数内部，所以 golang 直接将其分配在堆上。
+
+### 介绍下大对象小对象，为什么小对象多了会造成 gc 压力
+
+小于等于 32k 的对象就是小对象，其它都是大对象。一般小对象通过 mspan 分配内存；大对象则直接由 mheap 分配内存。通常小对象过多会导致 GC 三色法消耗过多的 CPU。优化思路是，减少对象分配。
+
+- 小对象：如果申请小对象时，发现当前内存空间不存在空闲跨度时，将会需要调用 nextFree 方法获取新的可用的对象，可能会触发 GC 行为。
+- 大对象：如果申请大于 32k 以上的大对象时，可能会触发 GC 行为。
+
+## 其他问题
+
+### Go 多返回值怎么实现
+
+Go 传参和返回值是通过 FP+offset 实现，并且存储在调用函数的栈帧中。FP 栈底寄存器，指向一个函数栈的顶部;PC 程序计数器，指向下一条执行指令;SB 指向静态数据的基指针，全局符号;SP 栈顶寄存器。
+
+### Go 中主协程如何等待其余协程退出
+
+Go 的 sync.WaitGroup 是等待一组协程结束，sync.WaitGroup 只有 3 个方法，Add()是添加计数，Done()减去一个计数，Wait()阻塞直到所有的任务完成。Go 里面还能通过有缓冲的 channel 实现其阻塞等待一组协程结束，这个不能保证一组 goroutine 按照顺序执行，可以并发执行协程。Go 里面能通过无缓冲的 channel 实现其阻塞等待一组协程结束，这个能保证一组 goroutine 按照顺序执行，但是不能并发执行。
+
+### Go 中不同类型如何比较是否相等
+
+像 string，int，float interface 等可以通过 reflect.DeepEqual 和等于号进行比较，像 slice，struct，map 则一般使用 reflect.DeepEqual 来检测是否相等。
+
+### Go 中 init 函数的特征
+
+一个包下可以有多个 init 函数，每个文件也可以有多个 init 函数。多个 init 函数按照它们的文件名顺序逐个初始化。应用初始化时初始化工作的顺序是，从被导入的最深层包开始进行初始化，层层递出最后到 main 包。不管包被导入多少次，包内的 init 函数只会执行一次。应用初始化时初始化工作的顺序是，从被导入的最深层包开始进行初始化，层层递出最后到 main 包。但包级别变量的初始化先于包内 init 函数的执行。
+
+### Go 中 uintptr 和 unsafe.Pointer 的区别
+
+unsafe.Pointer 是通用指针类型，它不能参与计算，任何类型的指针都可以转化成 unsafe.Pointer，unsafe.Pointer 可以转化成任何类型的指针，uintptr 可以转换为 unsafe.Pointer，unsafe.Pointer 可以转换为 uintptr。uintptr 是指针运算的工具，但是它不能持有指针对象（意思就是它跟指针对象不能互相转换），unsafe.Pointer 是指针对象进行运算（也就是 uintptr）的桥梁。
+
+### Go 共享内存（互斥锁）方式实现发送多个 get 请求
+
+### 从数组中取一个相同大小的 slice 有成本吗
 
